@@ -6,7 +6,7 @@
 //   $dll(XYGraph,1,<percentage>,<width>)     ->  channel 1
 //   $dll(XYGraph,2,<percentage>,<width>)     ->  channel 2
 //   ...
-//   $dll(XYGraph,100,<percentage>,<width>)   ->  channel 100
+//   $dll(XYGraph,99,<percentage>,<width>)    ->  channel 99
 //
 // Each channel keeps its own independent sample history. Use a different
 // function number on each screen so the graphs do not mix samples.
@@ -46,7 +46,7 @@
 static const int MAX_HISTORY   = 128;  // samples kept per channel
 static const int GRAPH_HEIGHT  = 8;    // pixels per character cell
 static const int DEFAULT_WIDTH = 16;   // default graph width
-static const int NUM_CHANNELS  = 100;  // one per exported function
+static const int NUM_CHANNELS  = 99;   // one per exported function
 
 static const int CHR_CODES[8] = { 176, 158, 131, 132, 133, 134, 135, 136 };
 
@@ -174,12 +174,12 @@ static char* process_channel(GraphChannel& chan, char* param1, char* param2)
 }
 
 // ---------------------------------------------------------------------------
-// Exported entry points: function1 .. function100
+// Exported entry points: function1 .. function99
 // ---------------------------------------------------------------------------
-#define DEFINE_CHANNEL(n)                                                     \
+#define DEFINE_CHANNEL(n)                                                         \
     extern "C" __declspec(dllexport) char* __stdcall function##n(char* p1, char* p2) \
-    {                                                                         \
-        return process_channel(g_channels[(n) - 1], p1, p2);                  \
+    {                                                                             \
+        return process_channel(g_channels[(n) - 1], p1, p2);                      \
     }
 
 DEFINE_CHANNEL(1)
@@ -281,7 +281,6 @@ DEFINE_CHANNEL(96)
 DEFINE_CHANNEL(97)
 DEFINE_CHANNEL(98)
 DEFINE_CHANNEL(99)
-DEFINE_CHANNEL(100)
 
 #undef DEFINE_CHANNEL
 
