@@ -1,21 +1,20 @@
 // XYGraph.cpp
-// LCD Smartie plugin: x/y graph tracking a percentage over time.
+// LCD Smartie plugin: bar graph tracking a percentage over time.
 // Build with MSVC: cl /LD /EHsc /O2 XYGraph.cpp /Fe:XYGraph.dll
 //
 // Usage in LCD Smartie:
 //   $dll(XYGraph,1,<percentage>,<graph_width>)
-//   Example: $dll(XYGraph,1,75,16)  -> 16-character-wide graph
+//   Example: $dll(XYGraph,1,75,8)  -> 8-bar-wide graph
 //
 // The plugin stores the last N percentage values in a ring buffer and
-// renders a line graph using $CustomChar definitions. Each column of the
-// graph is one custom character containing the line segment for that
-// time step.
+// renders each sample as a vertical bar. Each column is one custom
+// character whose bottom rows are filled in proportion to the value.
+// The character grid is 8 pixels tall, so each bar has 8 discrete levels
+// (0%, ~12.5%, 25%, ..., 100%).
 //
 // NOTE: LCD Smartie displays custom character N (defined with
 //       $CustomChar(N, ...)) using $Chr(N-1). So slot 1 is shown with
 //       $Chr(0), slot 2 with $Chr(1), and so on up to $Chr(7) for slot 8.
-//       Emitting $Chr(176..183) sends raw ROM-font bytes to the LCD, which
-//       is why the old version showed a line followed by "QRSTUVW".
 
 #include <windows.h>
 #include <string>
@@ -37,50 +36,36 @@ static const int MAX_WIDTH    = 8;    // LCD Smartie has 8 custom char slots
 static std::deque<int> g_history;     // percentage values (0-100)
 
 // ---------------------------------------------------------------------------
-// Helper: map a percentage to a row index (0 = bottom, 7 = top)
+// Helper: build a single 5x8 custom character that draws a vertical bar
+// filled from the bottom up. Row 0 is the top of the cell, row 7 is the
+// bottom. `filled` rows are drawn, starting at the bottom.
 // ---------------------------------------------------------------------------
-static int percent_to_row(int pct)
+static std::vector<unsigned char> make_bar_char(int pct)
 {
+    std::vector<unsigned char> ch(GRAPH_HEIGHT, 0);
     if (pct < 0)   pct = 0;
     if (pct > 100) pct = 100;
-    // Map 0-100 to rows 7-0 (row 0 is the top of the 8-pixel cell)
-    return 7 - (pct * 7) / 100;
-}
 
-// ---------------------------------------------------------------------------
-// Helper: build a single 5x8 custom character that draws a line from
-// (prev_row) to (curr_row) within one character cell.
-// Returns 8 bytes (one per row), each byte's lower 5 bits are the pixels.
-// ---------------------------------------------------------------------------
-static std::vector<unsigned char> make_line_char(int prev_row, int curr_row)
-{
-    std::vector<unsigned char> ch(8, 0);
-    if (prev_row < 0) prev_row = 7;
-    if (curr_row < 0) curr_row = 7;
-    if (prev_row > 7) prev_row = 0;
-    if (curr_row > 7) curr_row = 0;
+    // Number of rows to fill from the bottom: 0..8.
+    // The +50 rounds to nearest so 50% lands on 4 rows, not 3.
+    int filled = (pct * GRAPH_HEIGHT + 50) / 100;
+    if (filled < 0) filled = 0;
+    if (filled > GRAPH_HEIGHT) filled = GRAPH_HEIGHT;
 
-    int r0 = (prev_row < curr_row) ? prev_row : curr_row;
-    int r1 = (prev_row < curr_row) ? curr_row : prev_row;
-
-    for (int row = r0; row <= r1; ++row) {
-        // Set all 5 pixels on the rows between the two endpoints so the
-        // line segment is solid and easy to read on a character LCD.
-        ch[row] = 0x1F;
+    // Fill rows 7, 6, 5, ... up to `filled` rows.
+    for (int i = 0; i < filled; ++i) {
+        ch[GRAPH_HEIGHT - 1 - i] = 0x1F;  // all 5 pixels wide
     }
-    // Reinforce the endpoints.
-    ch[prev_row] |= 0x1F;
-    ch[curr_row] |= 0x1F;
     return ch;
 }
 
 // ---------------------------------------------------------------------------
-// Helper: build the complete $CustomChar()/$Chr() string for a graph of
+// Helper: build the complete $CustomChar()/$Chr() string for a bar graph of
 // `width` columns. Uses custom-character slots 1..width.
 // ---------------------------------------------------------------------------
 static std::string build_graph_string(int width)
 {
-    if (width < 1)        width = 1;
+    if (width < 1)         width = 1;
     if (width > MAX_WIDTH) width = MAX_WIDTH;
 
     // Ensure we have enough history.
@@ -98,25 +83,17 @@ static std::string build_graph_string(int width)
     std::ostringstream oss;
 
     for (int i = 0; i < width; ++i) {
-        int curr_pct = samples[i];
-        int prev_pct = (i == 0) ? curr_pct : samples[i - 1];
-
-        int prev_row = percent_to_row(prev_pct);
-        int curr_row = percent_to_row(curr_pct);
-
-        std::vector<unsigned char> ch = make_line_char(prev_row, curr_row);
+        std::vector<unsigned char> ch = make_bar_char(samples[i]);
 
         // Emit $CustomChar(n, b0, b1, ..., b7)  with n = i+1.
         oss << "$CustomChar(" << (i + 1);
-        for (int b = 0; b < 8; ++b) {
+        for (int b = 0; b < GRAPH_HEIGHT; ++b) {
             oss << "," << (int)ch[b];
         }
         oss << ")";
     }
 
-    // Now emit the characters themselves.
-    // Custom char N (defined as $CustomChar(N, ...)) is displayed with
-    // $Chr(N-1). So slot 1 -> $Chr(0), slot 2 -> $Chr(1), ..., slot 8 -> $Chr(7).
+    // Emit the characters themselves. Slot N is displayed with $Chr(N-1).
     for (int i = 0; i < width; ++i) {
         oss << "$Chr(" << i << ")";
     }
@@ -130,13 +107,13 @@ static std::string build_graph_string(int width)
 
 // Called by LCD Smartie: $dll(XYGraph,1,param1,param2)
 //   param1 = current percentage (0-100)
-//   param2 = graph width in characters (default 16; clamped to 8)
+//   param2 = graph width in characters (default 8; clamped to 8)
 extern "C" __declspec(dllexport) char* __stdcall function1(char* param1, char* param2)
 {
     static std::string result;
 
     int pct   = 0;
-    int width = 16;
+    int width = 8;
 
     if (param1 && *param1) {
         pct = atoi(param1);
