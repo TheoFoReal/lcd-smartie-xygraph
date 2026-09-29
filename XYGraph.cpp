@@ -3,13 +3,13 @@
 // Build with MSVC: cl /LD /EHsc /O2 XYGraph.cpp /Fe:XYGraph.dll
 //
 // Usage:
-//   $dll(XYGraph,1,<percentage>,<width>)   ->  channel 1
-//   $dll(XYGraph,2,<percentage>,<width>)   ->  channel 2
-//   $dll(XYGraph,3,<percentage>,<width>)   ->  channel 3
-//   $dll(XYGraph,4,<percentage>,<width>)   ->  channel 4
+//   $dll(XYGraph,1,<percentage>,<width>)     ->  channel 1
+//   $dll(XYGraph,2,<percentage>,<width>)     ->  channel 2
+//   ...
+//   $dll(XYGraph,100,<percentage>,<width>)   ->  channel 100
 //
 // Each channel keeps its own independent sample history. Use a different
-// function number on each screen so the two graphs do not mix samples.
+// function number on each screen so the graphs do not mix samples.
 //
 // Thread safety:
 //   Every channel is guarded by its own CRITICAL_SECTION, so concurrent
@@ -46,7 +46,7 @@
 static const int MAX_HISTORY   = 128;  // samples kept per channel
 static const int GRAPH_HEIGHT  = 8;    // pixels per character cell
 static const int DEFAULT_WIDTH = 16;   // default graph width
-static const int NUM_CHANNELS  = 4;    // one per exported function
+static const int NUM_CHANNELS  = 100;  // one per exported function
 
 static const int CHR_CODES[8] = { 176, 158, 131, 132, 133, 134, 135, 136 };
 
@@ -138,7 +138,7 @@ static void build_graph_string(GraphChannel& chan, int width, std::string& out)
 }
 
 // ---------------------------------------------------------------------------
-// Shared entry point for all four channels.
+// Shared entry point for all channels.
 // ---------------------------------------------------------------------------
 static char* process_channel(GraphChannel& chan, char* param1, char* param2)
 {
@@ -174,27 +174,116 @@ static char* process_channel(GraphChannel& chan, char* param1, char* param2)
 }
 
 // ---------------------------------------------------------------------------
-// Exported entry points
+// Exported entry points: function1 .. function100
 // ---------------------------------------------------------------------------
-extern "C" __declspec(dllexport) char* __stdcall function1(char* p1, char* p2)
-{
-    return process_channel(g_channels[0], p1, p2);
-}
+#define DEFINE_CHANNEL(n)                                                     \
+    extern "C" __declspec(dllexport) char* __stdcall function##n(char* p1, char* p2) \
+    {                                                                         \
+        return process_channel(g_channels[(n) - 1], p1, p2);                  \
+    }
 
-extern "C" __declspec(dllexport) char* __stdcall function2(char* p1, char* p2)
-{
-    return process_channel(g_channels[1], p1, p2);
-}
+DEFINE_CHANNEL(1)
+DEFINE_CHANNEL(2)
+DEFINE_CHANNEL(3)
+DEFINE_CHANNEL(4)
+DEFINE_CHANNEL(5)
+DEFINE_CHANNEL(6)
+DEFINE_CHANNEL(7)
+DEFINE_CHANNEL(8)
+DEFINE_CHANNEL(9)
+DEFINE_CHANNEL(10)
+DEFINE_CHANNEL(11)
+DEFINE_CHANNEL(12)
+DEFINE_CHANNEL(13)
+DEFINE_CHANNEL(14)
+DEFINE_CHANNEL(15)
+DEFINE_CHANNEL(16)
+DEFINE_CHANNEL(17)
+DEFINE_CHANNEL(18)
+DEFINE_CHANNEL(19)
+DEFINE_CHANNEL(20)
+DEFINE_CHANNEL(21)
+DEFINE_CHANNEL(22)
+DEFINE_CHANNEL(23)
+DEFINE_CHANNEL(24)
+DEFINE_CHANNEL(25)
+DEFINE_CHANNEL(26)
+DEFINE_CHANNEL(27)
+DEFINE_CHANNEL(28)
+DEFINE_CHANNEL(29)
+DEFINE_CHANNEL(30)
+DEFINE_CHANNEL(31)
+DEFINE_CHANNEL(32)
+DEFINE_CHANNEL(33)
+DEFINE_CHANNEL(34)
+DEFINE_CHANNEL(35)
+DEFINE_CHANNEL(36)
+DEFINE_CHANNEL(37)
+DEFINE_CHANNEL(38)
+DEFINE_CHANNEL(39)
+DEFINE_CHANNEL(40)
+DEFINE_CHANNEL(41)
+DEFINE_CHANNEL(42)
+DEFINE_CHANNEL(43)
+DEFINE_CHANNEL(44)
+DEFINE_CHANNEL(45)
+DEFINE_CHANNEL(46)
+DEFINE_CHANNEL(47)
+DEFINE_CHANNEL(48)
+DEFINE_CHANNEL(49)
+DEFINE_CHANNEL(50)
+DEFINE_CHANNEL(51)
+DEFINE_CHANNEL(52)
+DEFINE_CHANNEL(53)
+DEFINE_CHANNEL(54)
+DEFINE_CHANNEL(55)
+DEFINE_CHANNEL(56)
+DEFINE_CHANNEL(57)
+DEFINE_CHANNEL(58)
+DEFINE_CHANNEL(59)
+DEFINE_CHANNEL(60)
+DEFINE_CHANNEL(61)
+DEFINE_CHANNEL(62)
+DEFINE_CHANNEL(63)
+DEFINE_CHANNEL(64)
+DEFINE_CHANNEL(65)
+DEFINE_CHANNEL(66)
+DEFINE_CHANNEL(67)
+DEFINE_CHANNEL(68)
+DEFINE_CHANNEL(69)
+DEFINE_CHANNEL(70)
+DEFINE_CHANNEL(71)
+DEFINE_CHANNEL(72)
+DEFINE_CHANNEL(73)
+DEFINE_CHANNEL(74)
+DEFINE_CHANNEL(75)
+DEFINE_CHANNEL(76)
+DEFINE_CHANNEL(77)
+DEFINE_CHANNEL(78)
+DEFINE_CHANNEL(79)
+DEFINE_CHANNEL(80)
+DEFINE_CHANNEL(81)
+DEFINE_CHANNEL(82)
+DEFINE_CHANNEL(83)
+DEFINE_CHANNEL(84)
+DEFINE_CHANNEL(85)
+DEFINE_CHANNEL(86)
+DEFINE_CHANNEL(87)
+DEFINE_CHANNEL(88)
+DEFINE_CHANNEL(89)
+DEFINE_CHANNEL(90)
+DEFINE_CHANNEL(91)
+DEFINE_CHANNEL(92)
+DEFINE_CHANNEL(93)
+DEFINE_CHANNEL(94)
+DEFINE_CHANNEL(95)
+DEFINE_CHANNEL(96)
+DEFINE_CHANNEL(97)
+DEFINE_CHANNEL(98)
+DEFINE_CHANNEL(99)
+DEFINE_CHANNEL(100)
 
-extern "C" __declspec(dllexport) char* __stdcall function3(char* p1, char* p2)
-{
-    return process_channel(g_channels[2], p1, p2);
-}
-
-extern "C" __declspec(dllexport) char* __stdcall function4(char* p1, char* p2)
-{
-    return process_channel(g_channels[3], p1, p2);
-}
+#undef DEFINE_CHANNEL
 
 // ---------------------------------------------------------------------------
 // Lifecycle
