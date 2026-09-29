@@ -4,17 +4,12 @@
 //
 // Usage in LCD Smartie:
 //   $dll(XYGraph,1,<percentage>,<graph_width>)
-//   Example: $dll(XYGraph,1,75,8)  -> 8-bar-wide graph
+//   Example: $dll(XYGraph,1,75,4)  -> 4-bar-wide graph
 //
-// The plugin stores the last N percentage values in a ring buffer and
-// renders each sample as a vertical bar. Each column is one custom
-// character whose bottom rows are filled in proportion to the value.
-// The character grid is 8 pixels tall, so each bar has 8 discrete levels
-// (0%, ~12.5%, 25%, ..., 100%).
-//
-// NOTE: LCD Smartie displays custom character N (defined with
-//       $CustomChar(N, ...)) using $Chr(N-1). So slot 1 is shown with
-//       $Chr(0), slot 2 with $Chr(1), and so on up to $Chr(7) for slot 8.
+// Diagnostic mode:
+//   $dll(XYGraph,1,?,4)  ->  echoes back the parameters it received
+//   Example output:  P1=[?] P2=[4]
+//   If P2 shows "(null)" or "[]", LCD Smartie is not forwarding param2.
 
 #include <windows.h>
 #include <string>
@@ -29,6 +24,7 @@
 static const int MAX_HISTORY  = 64;   // maximum samples kept in memory
 static const int GRAPH_HEIGHT = 8;    // vertical pixels per character cell
 static const int MAX_WIDTH    = 8;    // LCD Smartie has 8 custom char slots
+static const int DEFAULT_WIDTH = 8;   // used when param2 is missing/empty
 
 // ---------------------------------------------------------------------------
 // Internal state (persists between calls)
@@ -52,7 +48,6 @@ static std::vector<unsigned char> make_bar_char(int pct)
     if (filled < 0) filled = 0;
     if (filled > GRAPH_HEIGHT) filled = GRAPH_HEIGHT;
 
-    // Fill rows 7, 6, 5, ... up to `filled` rows.
     for (int i = 0; i < filled; ++i) {
         ch[GRAPH_HEIGHT - 1 - i] = 0x1F;  // all 5 pixels wide
     }
@@ -61,7 +56,7 @@ static std::vector<unsigned char> make_bar_char(int pct)
 
 // ---------------------------------------------------------------------------
 // Helper: build the complete $CustomChar()/$Chr() string for a bar graph of
-// `width` columns. Uses custom-character slots 1..width.
+// `width` columns.
 // ---------------------------------------------------------------------------
 static std::string build_graph_string(int width)
 {
@@ -79,7 +74,6 @@ static std::string build_graph_string(int width)
         samples.push_back(g_history[i]);
     }
 
-    // Build custom-char definitions and the display string.
     std::ostringstream oss;
 
     for (int i = 0; i < width; ++i) {
@@ -102,18 +96,30 @@ static std::string build_graph_string(int width)
 }
 
 // ---------------------------------------------------------------------------
-// Exported plugin functions
+// Exported plugin function
 // ---------------------------------------------------------------------------
-
-// Called by LCD Smartie: $dll(XYGraph,1,param1,param2)
-//   param1 = current percentage (0-100)
-//   param2 = graph width in characters (default 8; clamped to 8)
 extern "C" __declspec(dllexport) char* __stdcall function1(char* param1, char* param2)
 {
     static std::string result;
 
+    // --- Diagnostic mode -------------------------------------------------
+    // If param1 is exactly "?", echo back the received parameters so you
+    // can verify what LCD Smartie is actually handing to the plugin.
+    // Trigger with: $dll(XYGraph,1,?,4)
+    if (param1 != NULL && param1[0] == '?' && param1[1] == '\0') {
+        std::ostringstream d;
+        d << "P1=[";
+        d << (param1 ? param1 : "NULL");
+        d << "] P2=[";
+        d << ((param2 && param2[0]) ? param2 : "EMPTY");
+        d << "]";
+        result = d.str();
+        return const_cast<char*>(result.c_str());
+    }
+
+    // --- Normal mode -----------------------------------------------------
     int pct   = 0;
-    int width = 8;
+    int width = DEFAULT_WIDTH;
 
     if (param1 && *param1) {
         pct = atoi(param1);
@@ -134,29 +140,26 @@ extern "C" __declspec(dllexport) char* __stdcall function1(char* param1, char* p
         g_history.pop_front();
     }
 
-    // Build and return the graph string.
     result = build_graph_string(width);
     return const_cast<char*>(result.c_str());
 }
 
-// Optional: called when the plugin is first loaded.
+// ---------------------------------------------------------------------------
+// Lifecycle
+// ---------------------------------------------------------------------------
 extern "C" __declspec(dllexport) void __stdcall SmartieInit()
 {
     g_history.clear();
-    // Seed with a few zeros so the graph doesn't start empty.
     for (int i = 0; i < MAX_WIDTH; ++i) {
         g_history.push_back(0);
     }
 }
 
-// Optional: called when the plugin is unloaded.
 extern "C" __declspec(dllexport) void __stdcall SmartieFini()
 {
     g_history.clear();
 }
 
-// Optional: minimum refresh interval in milliseconds.
-// 500 ms gives a smooth-but-legible graph without hammering the LCD.
 extern "C" __declspec(dllexport) int __stdcall GetMinRefreshInterval()
 {
     return 500;
