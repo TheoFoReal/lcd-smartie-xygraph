@@ -6,10 +6,19 @@
 //   $dll(XYGraph,1,<percentage>,<graph_width>)
 //   Example: $dll(XYGraph,1,75,4)  -> 4-bar-wide graph
 //
-// Diagnostic mode:
-//   $dll(XYGraph,1,?,4)  ->  echoes back the parameters it received
-//   Example output:  P1=[?] P2=[4]
-//   If P2 shows "(null)" or "[]", LCD Smartie is not forwarding param2.
+// The plugin stores the last N percentage values in a ring buffer and
+// renders each sample as a vertical bar. Each column is one custom
+// character whose bottom rows are filled in proportion to the value.
+//
+// IMPORTANT: this version defines ALL EIGHT custom-character slots on
+// every call. Slots 1..width hold the bar for each sample; slots
+// width+1..8 are explicitly defined as blank. This prevents the display
+// from showing stale bars left over from a previous call that used a
+// wider graph (HD44780 CGRAM is not cleared between renders).
+//
+// NOTE: LCD Smartie displays custom character N (defined with
+//       $CustomChar(N, ...)) using $Chr(N-1). So slot 1 is shown with
+//       $Chr(0), slot 2 with $Chr(1), and so on up to $Chr(7) for slot 8.
 
 #include <windows.h>
 #include <string>
@@ -21,20 +30,19 @@
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
-static const int MAX_HISTORY  = 64;   // maximum samples kept in memory
-static const int GRAPH_HEIGHT = 8;    // vertical pixels per character cell
-static const int MAX_WIDTH    = 8;    // LCD Smartie has 8 custom char slots
-static const int DEFAULT_WIDTH = 8;   // used when param2 is missing/empty
+static const int MAX_HISTORY   = 64;   // maximum samples kept in memory
+static const int GRAPH_HEIGHT  = 8;    // vertical pixels per character cell
+static const int MAX_WIDTH     = 8;    // LCD Smartie has 8 custom char slots
+static const int DEFAULT_WIDTH = 8;    // used when param2 is missing/empty
 
 // ---------------------------------------------------------------------------
 // Internal state (persists between calls)
 // ---------------------------------------------------------------------------
-static std::deque<int> g_history;     // percentage values (0-100)
+static std::deque<int> g_history;      // percentage values (0-100)
 
 // ---------------------------------------------------------------------------
-// Helper: build a single 5x8 custom character that draws a vertical bar
-// filled from the bottom up. Row 0 is the top of the cell, row 7 is the
-// bottom. `filled` rows are drawn, starting at the bottom.
+// Helper: build a 5x8 custom character that draws a vertical bar filled
+// from the bottom up. Row 0 is the top of the cell, row 7 is the bottom.
 // ---------------------------------------------------------------------------
 static std::vector<unsigned char> make_bar_char(int pct)
 {
@@ -56,7 +64,8 @@ static std::vector<unsigned char> make_bar_char(int pct)
 
 // ---------------------------------------------------------------------------
 // Helper: build the complete $CustomChar()/$Chr() string for a bar graph of
-// `width` columns.
+// `width` columns. Always defines all MAX_WIDTH slots so unused slots are
+// forced to blank.
 // ---------------------------------------------------------------------------
 static std::string build_graph_string(int width)
 {
@@ -76,18 +85,24 @@ static std::string build_graph_string(int width)
 
     std::ostringstream oss;
 
-    for (int i = 0; i < width; ++i) {
-        std::vector<unsigned char> ch = make_bar_char(samples[i]);
+    // --- Define ALL 8 custom-char slots every call -----------------------
+    for (int slot = 1; slot <= MAX_WIDTH; ++slot) {
+        std::vector<unsigned char> ch;
+        if (slot <= width) {
+            ch = make_bar_char(samples[slot - 1]);
+        } else {
+            ch.assign(GRAPH_HEIGHT, 0);   // blank char for unused slots
+        }
 
-        // Emit $CustomChar(n, b0, b1, ..., b7)  with n = i+1.
-        oss << "$CustomChar(" << (i + 1);
+        oss << "$CustomChar(" << slot;
         for (int b = 0; b < GRAPH_HEIGHT; ++b) {
             oss << "," << (int)ch[b];
         }
         oss << ")";
     }
 
-    // Emit the characters themselves. Slot N is displayed with $Chr(N-1).
+    // --- Emit only `width` visible characters ---------------------------
+    // Slot N is displayed with $Chr(N-1), so width=4 -> $Chr(0..3).
     for (int i = 0; i < width; ++i) {
         oss << "$Chr(" << i << ")";
     }
@@ -102,22 +117,6 @@ extern "C" __declspec(dllexport) char* __stdcall function1(char* param1, char* p
 {
     static std::string result;
 
-    // --- Diagnostic mode -------------------------------------------------
-    // If param1 is exactly "?", echo back the received parameters so you
-    // can verify what LCD Smartie is actually handing to the plugin.
-    // Trigger with: $dll(XYGraph,1,?,4)
-    if (param1 != NULL && param1[0] == '?' && param1[1] == '\0') {
-        std::ostringstream d;
-        d << "P1=[";
-        d << (param1 ? param1 : "NULL");
-        d << "] P2=[";
-        d << ((param2 && param2[0]) ? param2 : "EMPTY");
-        d << "]";
-        result = d.str();
-        return const_cast<char*>(result.c_str());
-    }
-
-    // --- Normal mode -----------------------------------------------------
     int pct   = 0;
     int width = DEFAULT_WIDTH;
 
