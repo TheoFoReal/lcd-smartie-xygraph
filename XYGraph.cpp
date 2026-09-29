@@ -9,9 +9,7 @@
 //   $dll(XYGraph,4,<percentage>,<width>)   ->  channel 4
 //
 // Each channel keeps its own independent sample history. Use a different
-// function number on each screen — for example $dll(XYGraph,1,...) for CPU
-// on one screen and $dll(XYGraph,2,...) for RAM on another — so the two
-// graphs do not mix their samples together.
+// function number on each screen so the two graphs do not mix samples.
 //
 // Thread safety:
 //   Every channel is guarded by its own CRITICAL_SECTION, so concurrent
@@ -23,7 +21,11 @@
 //   not for individual time slots. Slot N holds a bar that is N rows tall.
 //   Each sample is rendered by emitting the $Chr() code for whichever
 //   height it needs, so the same custom character is reused many times
-//   across the row. A 0% sample is rendered as a space.
+//   across the row.
+//
+//   Every sample shows at least one row, including 0%. The 0-100% range
+//   is mapped evenly across the 8 height levels, so an idle metric still
+//   has a visible baseline bar.
 //
 // Custom-char slot mapping (verified on LCD Smartie 5.6 with desktop.dll):
 //   slot 1 -> $Chr(176)   slot 5 -> $Chr(133)
@@ -77,20 +79,21 @@ static std::vector<unsigned char> make_bar_char(int rows_filled)
 }
 
 // ---------------------------------------------------------------------------
-// Map a percentage to one of 8 height levels (1..8).
-// Returns 0 to indicate "blank" (use a space).
+// Map a percentage to a bar height level (1..8).
+// Every value maps to at least one row, including 0%, so the graph always
+// shows a visible baseline.
 // ---------------------------------------------------------------------------
 static int percent_to_level(int pct)
 {
     if (pct < 0)   pct = 0;
     if (pct > 100) pct = 100;
 
-    int level = (pct * GRAPH_HEIGHT + 50) / 100;
-    if (level < 0)             level = 0;
-    if (level > GRAPH_HEIGHT)  level = GRAPH_HEIGHT;
+    // Map 0-100% onto 1..8 rows. The +50 rounds to nearest so the
+    // boundaries land at ~12.5%, 25%, ..., 87.5% rather than at 0.
+    int level = 1 + (pct * (GRAPH_HEIGHT - 1) + 50) / 100;
 
-    // Any nonzero reading shows at least one pixel.
-    if (level == 0 && pct > 0) level = 1;
+    if (level < 1)            level = 1;
+    if (level > GRAPH_HEIGHT) level = GRAPH_HEIGHT;
 
     return level;
 }
@@ -123,16 +126,12 @@ static void build_graph_string(GraphChannel& chan, int width, std::string& out)
         oss << ")";
     }
 
-    // Emit one character per sample.
+    // Emit one character per sample. Every sample maps to a level 1..8,
+    // so there is never a blank column.
     for (int i = 0; i < width; ++i) {
         int pct   = chan.history[start + i];
         int level = percent_to_level(pct);
-
-        if (level == 0) {
-            oss << " ";
-        } else {
-            oss << "$Chr(" << CHR_CODES[level - 1] << ")";
-        }
+        oss << "$Chr(" << CHR_CODES[level - 1] << ")";
     }
 
     out = oss.str();
