@@ -17,15 +17,13 @@
 //   config-save thread cannot corrupt the deque or tear the output string.
 //
 // Bar rendering:
-//   The 8 custom-character slots are used for the 8 possible bar heights,
-//   not for individual time slots. Slot N holds a bar that is N rows tall.
-//   Each sample is rendered by emitting the $Chr() code for whichever
-//   height it needs, so the same custom character is reused many times
-//   across the row.
+//   Each character cell is 8 pixels tall. Row 0 (the top) is always on
+//   and forms a continuous horizontal line across the graph marking the
+//   upper boundary (100%). Rows 1..7 are the bar area; a bar is drawn
+//   from the bottom up, so its height is 1..7 rows.
 //
-//   Every sample shows at least one row, including 0%. The 0-100% range
-//   is mapped evenly across the 8 height levels, so an idle metric still
-//   has a visible baseline bar.
+//   Every sample shows at least one filled row below the boundary line,
+//   including 0%, so the graph always has a visible baseline.
 //
 // Custom-char slot mapping (verified on LCD Smartie 5.6 with desktop.dll):
 //   slot 1 -> $Chr(176)   slot 5 -> $Chr(133)
@@ -45,6 +43,7 @@
 // ---------------------------------------------------------------------------
 static const int MAX_HISTORY   = 128;  // samples kept per channel
 static const int GRAPH_HEIGHT  = 8;    // pixels per character cell
+static const int BAR_ROWS      = GRAPH_HEIGHT - 1;  // bar area = 7 rows
 static const int DEFAULT_WIDTH = 16;   // default graph width
 static const int NUM_CHANNELS  = 99;   // one per exported function
 
@@ -63,37 +62,43 @@ struct GraphChannel {
 static GraphChannel g_channels[NUM_CHANNELS];
 
 // ---------------------------------------------------------------------------
-// Build a 5x8 character whose bottom `rows_filled` rows are on.
-// rows_filled ranges 0..8. Row 0 is the top of the cell, row 7 bottom.
+// Build a 5x8 character:
+//   - Row 0 is always on (the boundary line).
+//   - Rows 1..7 are the bar area; `level` rows are filled at the bottom.
+//   - level ranges 0..BAR_ROWS (0..7).
 // ---------------------------------------------------------------------------
-static std::vector<unsigned char> make_bar_char(int rows_filled)
+static std::vector<unsigned char> make_bar_char(int level)
 {
     std::vector<unsigned char> ch(GRAPH_HEIGHT, 0);
-    if (rows_filled < 0)            rows_filled = 0;
-    if (rows_filled > GRAPH_HEIGHT) rows_filled = GRAPH_HEIGHT;
+    if (level < 0)        level = 0;
+    if (level > BAR_ROWS) level = BAR_ROWS;
 
-    for (int i = 0; i < rows_filled; ++i) {
-        ch[GRAPH_HEIGHT - 1 - i] = 0x1F;   // all 5 pixels on
+    // Top row: the upper boundary line, present on every column.
+    ch[0] = 0x1F;
+
+    // Fill `level` rows from the bottom of the cell.
+    for (int i = 0; i < level; ++i) {
+        ch[GRAPH_HEIGHT - 1 - i] = 0x1F;
     }
     return ch;
 }
 
 // ---------------------------------------------------------------------------
-// Map a percentage to a bar height level (1..8).
-// Every value maps to at least one row, including 0%, so the graph always
-// shows a visible baseline.
+// Map a percentage to a bar height level (1..BAR_ROWS).
+// Every value maps to at least one filled row, including 0%, so the graph
+// always shows a visible baseline below the boundary line.
 // ---------------------------------------------------------------------------
 static int percent_to_level(int pct)
 {
     if (pct < 0)   pct = 0;
     if (pct > 100) pct = 100;
 
-    // Map 0-100% onto 1..8 rows. The +50 rounds to nearest so the
-    // boundaries land at ~12.5%, 25%, ..., 87.5% rather than at 0.
-    int level = 1 + (pct * (GRAPH_HEIGHT - 1) + 50) / 100;
+    // Map 0-100% onto 1..BAR_ROWS filled rows.
+    int range = BAR_ROWS - 1;              // 6 for BAR_ROWS = 7
+    int level = 1 + (pct * range + 50) / 100;
 
-    if (level < 1)            level = 1;
-    if (level > GRAPH_HEIGHT) level = GRAPH_HEIGHT;
+    if (level < 1)        level = 1;
+    if (level > BAR_ROWS) level = BAR_ROWS;
 
     return level;
 }
@@ -116,8 +121,9 @@ static void build_graph_string(GraphChannel& chan, int width, std::string& out)
 
     std::ostringstream oss;
 
-    // Define the 8 custom characters, one per height level 1..8.
-    for (int level = 1; level <= GRAPH_HEIGHT; ++level) {
+    // Define the custom characters.
+    // Slots 1..BAR_ROWS hold levels 1..BAR_ROWS (boundary line + N filled rows).
+    for (int level = 1; level <= BAR_ROWS; ++level) {
         std::vector<unsigned char> ch = make_bar_char(level);
         oss << "$CustomChar(" << level;
         for (int b = 0; b < GRAPH_HEIGHT; ++b) {
@@ -125,9 +131,17 @@ static void build_graph_string(GraphChannel& chan, int width, std::string& out)
         }
         oss << ")";
     }
+    // Any remaining slots are defined blank so stale definitions cannot
+    // leak through from a previous screen or plugin.
+    for (int slot = BAR_ROWS + 1; slot <= GRAPH_HEIGHT; ++slot) {
+        oss << "$CustomChar(" << slot;
+        for (int b = 0; b < GRAPH_HEIGHT; ++b) {
+            oss << ",0";
+        }
+        oss << ")";
+    }
 
-    // Emit one character per sample. Every sample maps to a level 1..8,
-    // so there is never a blank column.
+    // Emit one character per sample. Every sample maps to a level 1..BAR_ROWS.
     for (int i = 0; i < width; ++i) {
         int pct   = chan.history[start + i];
         int level = percent_to_level(pct);
