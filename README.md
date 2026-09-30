@@ -7,7 +7,7 @@ A side-scrolling bar graph that tracks a percentage value over time.
 $dll(XYGraph,[deque#(one per instance)],[percentage value],[graph length]/[bar width(1-3)])
 
 # Clarification:
-- (deque#): Each instance of XYGraph.dll requires its own deque (99 max).
+- [deque#]: Each instance of XYGraph.dll requires its own deque (99 max).
 - [bar width] = 1 ⟶ 1 pixel wide, [bar width] = 2 ⟶ 3 pixels wide, [bar width] = 3 ⟶ 5 pixels wide
 
 # Caveats: 
