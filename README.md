@@ -4,7 +4,7 @@
 A side-scrolling bar graph that tracks a percentage value over time.
 
 # Format:
-$dll(XYGraph,[deque#(for each instance)],[percentage value],[graph length]/[bar width(1-3)])
+$dll(XYGraph,[deque#(one for each instance)],[percentage value],[graph length]/[bar width(1-3)])
 
 # Clarification:
 - (deque#): Each instance of XYGraph.dll requires its own deque (99 max).
