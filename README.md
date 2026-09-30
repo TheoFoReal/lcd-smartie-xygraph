@@ -1,11 +1,11 @@
 # lcd-smartie-xygraph
 
-**Description:**
+**Description**:
 Tracks a percentage value over time with a side-scrolling bar graph. 
 
-**Formating:**:
+**Formating**:
 $dll(XYGraph,[deque#(for multiple instances)],[percentage value],[graph length]/[bar width (1-3)])
 
-**Caveat:**: 
+**Caveats**: 
 1) Only one bar width can be used per screen due to hardware limitations (custom character storage). 
 2) Only the final instance of XYGraph.dll needs specified bar width - all other instances will match. If bar width is not specified, it defaults to 3 (5 pixels wide).
