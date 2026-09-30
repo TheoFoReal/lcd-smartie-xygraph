@@ -8,7 +8,6 @@ $dll(XYGraph,[deque#(for multiple instances)],[percentage value],[graph length]/
 
 # Clarification:
 - (deque#): Each instance of XYGraph.dll needs its own deque.
-- [percentage value]: out of 100
 - [bar width] = 1 ⟶ 1 pixel wide, [bar width] = 2 ⟶ 3 pixels wide, [bar width] = 3 ⟶ 5 pixels wide
 
 # Caveats: 
