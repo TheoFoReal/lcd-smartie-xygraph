@@ -8,4 +8,4 @@
 
 **Caveats**: 
 - Only one bar width can be used per screen due to hardware limitations (custom character storage). 
-- Only the final instance of XYGraph.dll needs bar width to be specified - all other instances will match. If bar width is not specified, it defaults to 3 (5 pixels wide).
+- Only the final instance of XYGraph.dll needs bar width to be specified - all other instances on that screen will match. If bar width is not specified, it defaults to 3 (5 pixels wide).
