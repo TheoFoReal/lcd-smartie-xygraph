@@ -3,10 +3,27 @@
 // Build with MSVC: cl /LD /EHsc /O2 XYGraph.cpp /Fe:XYGraph.dll
 //
 // Usage:
-//   $dll(XYGraph,1,<percentage>,<width>)     ->  channel 1
-//   $dll(XYGraph,2,<percentage>,<width>)     ->  channel 2
+//   $dll(XYGraph,1,<percentage>,<width>)              ->  channel 1
+//   $dll(XYGraph,1,<percentage>,<width>/<barwidth>)   ->  channel 1, custom bar width
 //   ...
-//   $dll(XYGraph,99,<percentage>,<width>)    ->  channel 99
+//   $dll(XYGraph,99,<percentage>,<width>)             ->  channel 99
+//
+// param1 : percentage value (0-100)
+// param2 : <graph width>[/<bar width>]
+//
+//   graph width : number of samples (columns) to display
+//                 (1..MAX_HISTORY; typically the width of your LCD row)
+//   bar width   : optional, 1..3
+//                   1 = 1 pixel wide
+//                   2 = 3 pixels wide
+//                   3 = 5 pixels wide   [default when no '/' is present]
+//                 Bars are always centred within the 5-pixel cell.
+//
+// Examples:
+//   $dll(XYGraph,1,$CPU%,16)       -> 16 columns, 5-pixel-wide bars
+//   $dll(XYGraph,1,$CPU%,16/1)     -> 16 columns, 1-pixel-wide bars
+//   $dll(XYGraph,1,$CPU%,16/2)     -> 16 columns, 3-pixel-wide bars
+//   $dll(XYGraph,1,$CPU%,16/3)     -> 16 columns, 5-pixel-wide bars (touching)
 //
 // Each channel keeps its own independent sample history. Use a different
 // function number on each screen so the graphs do not mix samples.
@@ -19,10 +36,10 @@
 // Bar rendering:
 //   Each character cell is 8 pixels tall and 5 pixels wide.
 //
-//   A bar is drawn from the bottom up, and is only 3 pixels wide,
-//   centred within the 5-pixel cell (bits 1, 2, and 3; bits 0 and 4
-//   stay off). The 1-pixel gap on each side keeps neighbouring bars
-//   visually separated.
+//   A bar is drawn from the bottom up. Its width is one of:
+//     1 pixel  -> 0b00100 (bit 2)
+//     3 pixels -> 0b01110 (bits 1, 2, 3)
+//     5 pixels -> 0b11111 (bits 0..4)   [default]
 //
 //   A bar's height ranges from 1 to 8 rows, so the vertical resolution
 //   is 8 levels. Every sample shows at least one filled row, including
@@ -40,6 +57,7 @@
 #include <vector>
 #include <deque>
 #include <algorithm>
+#include <string.h>
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -47,11 +65,17 @@
 static const int MAX_HISTORY   = 128;  // samples kept per channel
 static const int GRAPH_HEIGHT  = 8;    // pixels per character cell
 static const int DEFAULT_WIDTH = 16;   // default graph width
+static const int DEFAULT_BARW  = 3;    // default bar width index (5 pixels)
 static const int NUM_CHANNELS  = 99;   // one per exported function
 
-// Bit pattern for a 5-pixel-wide HD44780 cell (bits 0..4).
-//   BAR_ROW : middle 3 pixels on -> bar fill, centred.
-static const unsigned char BAR_ROW = 0x0E;   // 0b01110
+// Pixel patterns for the three selectable bar widths.
+// Index 0 is unused; indices 1..3 match the param2 "/N" suffix.
+static const unsigned char BAR_PATTERNS[4] = {
+    0x00,  // (unused)
+    0x04,  // 1 pixel:  0b00100
+    0x0E,  // 3 pixels: 0b01110
+    0x1F   // 5 pixels: 0b11111
+};
 
 static const int CHR_CODES[8] = { 176, 158, 131, 132, 133, 134, 135, 136 };
 
@@ -68,18 +92,17 @@ struct GraphChannel {
 static GraphChannel g_channels[NUM_CHANNELS];
 
 // ---------------------------------------------------------------------------
-// Build a 5x8 character whose bottom `level` rows are filled with a
-// 3-pixel-wide, centred bar. level ranges 1..GRAPH_HEIGHT.
+// Build a 5x8 character whose bottom `level` rows are filled with the
+// given pixel pattern. level ranges 1..GRAPH_HEIGHT.
 // ---------------------------------------------------------------------------
-static std::vector<unsigned char> make_bar_char(int level)
+static std::vector<unsigned char> make_bar_char(int level, unsigned char pattern)
 {
     std::vector<unsigned char> ch(GRAPH_HEIGHT, 0);
     if (level < 1)             level = 1;
     if (level > GRAPH_HEIGHT)  level = GRAPH_HEIGHT;
 
-    // Fill `level` rows from the bottom of the cell, 3 pixels wide, centred.
     for (int i = 0; i < level; ++i) {
-        ch[GRAPH_HEIGHT - 1 - i] = BAR_ROW;
+        ch[GRAPH_HEIGHT - 1 - i] = pattern;
     }
     return ch;
 }
@@ -94,7 +117,6 @@ static int percent_to_level(int pct)
     if (pct < 0)   pct = 0;
     if (pct > 100) pct = 100;
 
-    // Map 0-100% onto 1..GRAPH_HEIGHT filled rows.
     int range = GRAPH_HEIGHT - 1;               // 7
     int level = 1 + (pct * range + 50) / 100;
 
@@ -108,10 +130,16 @@ static int percent_to_level(int pct)
 // Build the output string for one channel.
 // Caller must hold the channel's critical section.
 // ---------------------------------------------------------------------------
-static void build_graph_string(GraphChannel& chan, int width, std::string& out)
+static void build_graph_string(GraphChannel& chan, int width, int bar_width,
+                               std::string& out)
 {
     if (width < 1)            width = 1;
     if (width > MAX_HISTORY)  width = MAX_HISTORY;
+
+    if (bar_width < 1) bar_width = 1;
+    if (bar_width > 3) bar_width = 3;
+
+    const unsigned char pattern = BAR_PATTERNS[bar_width];
 
     // Ensure enough history.
     while ((int)chan.history.size() < width) {
@@ -124,7 +152,7 @@ static void build_graph_string(GraphChannel& chan, int width, std::string& out)
 
     // Define the custom characters: one per bar height level, 1..8.
     for (int level = 1; level <= GRAPH_HEIGHT; ++level) {
-        std::vector<unsigned char> ch = make_bar_char(level);
+        std::vector<unsigned char> ch = make_bar_char(level, pattern);
         oss << "$CustomChar(" << level;
         for (int b = 0; b < GRAPH_HEIGHT; ++b) {
             oss << "," << (int)ch[b];
@@ -155,23 +183,46 @@ static char* process_channel(GraphChannel& chan, char* param1, char* param2)
 
     EnterCriticalSection(&chan.cs);
 
-    int pct   = 0;
-    int width = DEFAULT_WIDTH;
+    int pct       = 0;
+    int width     = DEFAULT_WIDTH;
+    int bar_width = DEFAULT_BARW;
 
-    if (param1 && *param1) pct   = atoi(param1);
-    if (param2 && *param2) width = atoi(param2);
+    if (param1 && *param1) pct = atoi(param1);
 
-    if (pct < 0)             pct   = 0;
-    if (pct > 100)           pct   = 100;
-    if (width < 1)           width = 1;
-    if (width > MAX_HISTORY) width = MAX_HISTORY;
+    // --- Parse param2 as "<width>[/<bar_width>]" ------------------------
+    if (param2 && *param2) {
+        char buf[64];
+        strncpy(buf, param2, sizeof(buf) - 1);
+        buf[sizeof(buf) - 1] = '\0';
+
+        char* slash = strchr(buf, '/');
+        if (slash != NULL) {
+            *slash = '\0';
+            int w = atoi(buf);
+            if (w > 0) width = w;
+
+            int bw = atoi(slash + 1);
+            if (bw >= 1 && bw <= 3) bar_width = bw;
+        } else {
+            int w = atoi(buf);
+            if (w > 0) width = w;
+        }
+    }
+
+    // --- Clamp ----------------------------------------------------------
+    if (pct < 0)             pct       = 0;
+    if (pct > 100)           pct       = 100;
+    if (width < 1)           width     = 1;
+    if (width > MAX_HISTORY) width     = MAX_HISTORY;
+    if (bar_width < 1)       bar_width = 1;
+    if (bar_width > 3)       bar_width = 3;
 
     chan.history.push_back(pct);
     while ((int)chan.history.size() > MAX_HISTORY) {
         chan.history.pop_front();
     }
 
-    build_graph_string(chan, width, chan.result);
+    build_graph_string(chan, width, bar_width, chan.result);
 
     char* ret = const_cast<char*>(chan.result.c_str());
     LeaveCriticalSection(&chan.cs);
