@@ -1,7 +1,7 @@
 # lcd-smartie-xygraph
 
 **Description**:
-Tracks a percentage value over time with a side-scrolling bar graph. 
+Tracks a percentage value over time using a side-scrolling bar graph. 
 
 **Formating**:
 $dll(XYGraph,[deque#(for multiple instances)],[percentage value],[graph length]/[bar width (1-3)])
