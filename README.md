@@ -12,4 +12,4 @@ $dll(XYGraph,[deque#(one per instance)],[percentage value],[graph length]/[bar w
 
 # Caveats: 
 - Only one bar width setting can be used per screen due to hardware limitations on custom character storage.
-- Bar width specification is only required on the final instance of XYGraph.dll - all other instances on that screen will match. If no bar width is specified, the parameter defaults to 3 (5 pixels wide).
+- Bar width specification is only required on the final instance of XYGraph.dll - all other instances sharing that screen will match. If no bar width is specified, the parameter defaults to 3 (5 pixels wide).
